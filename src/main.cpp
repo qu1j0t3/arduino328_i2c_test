@@ -117,18 +117,31 @@ Serial.begin(9600);
 
     i2c_init();                                // init I2C interface
 
-    uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
-    if ( ret ) { // failed to issue start condition, possibly no device found
-        i2c_stop();
-        Serial.println("Error1");
-    }else {// issuing start condition ok, device accessible
-        i2c_start_wait((TC74_ADDRESS << 1) | I2C_WRITE);     // set device address and write mode
-        i2c_write(TC74_RWCR_COMMAND);                        // write address = 5
-        ret = i2c_readNak();                    // read one byte
-        i2c_stop();
+    for(uint8_t tick = 0; ; ++tick) {
 
-        Serial.println(ret);
+            Serial.print(':');
+            Serial.println(tick);
+
+        PIND |= 1 << PORTD_TRIGGER;
+
+        uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
+
+        PIND |= 1 << PORTD_TRIGGER;
+
+        if ( ret ) { // failed to issue start condition, possibly no device found
+            i2c_stop();
+            Serial.println("Error1");
+        } else {// issuing start condition ok, device accessible
+            i2c_write(TC74_RWCR_COMMAND);
+
+            i2c_start_wait((TC74_ADDRESS << 1) | I2C_WRITE);     // set device address and write mode
+            ret = i2c_readNak();                    // read one byte
+            i2c_stop();
+
+            Serial.println(ret);
+        }
+
+        _delay_ms(500);
     }
-
 
 }
