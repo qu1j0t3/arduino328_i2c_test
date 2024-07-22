@@ -5,7 +5,11 @@
 #include <stddef.h>
 
 #include <Arduino.h>
-#include <Wire.h>
+//#include <Wire.h>
+
+extern "C" {
+  #include "fleury_i2cmaster/i2cmaster.h"
+};
 
 /*
  ┏━━━━━━━━━━━┓
@@ -28,12 +32,69 @@ enum {
    TC74_ADDRESS = 0b1001000
 };// i2c_addresses;
 
+enum {
+  TC74_RTR_COMMAND = 0,
+  TC74_RWCR_COMMAND
+};
+
+enum {
+  PORTD_TRIGGER = 2
+};// io_map
+
+enum {
+  TWI_PRESCALER_1 = 0,
+  TWI_PRESCALER_4,
+  TWI_PRESCALER_16,
+  TWI_PRESCALER_64
+};
+
+void twi_hello_world() {
+  TWSR = TWI_PRESCALER_4;
+  TWBR = 18; // Aim at 100kHz with Prescaler /4
+
+  TWCR = (1<<TWINT) | (1<<TWSTO) | (1<<TWEN);
+
+  PIND |= 1 << PORTD_TRIGGER;
+
+  TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN); // send START condition
+
+
+  while(!(TWCR & (1<<TWINT))) // wait for end of tx
+    ;
+
+  _delay_us(100);
+
+  PIND |= 1 << PORTD_TRIGGER;
+
+  if ((TWSR & 0xf8) != 0x08) {
+    Serial.println("status:");
+    Serial.println(TWSR & 0xf8);
+    Serial.println("Error@1");
+  } else {
+    Serial.println("OK@1");
+    // send address
+    TWDR = (0x55 << 1)|1; // dummy address
+    TWCR = (1<<TWINT)|(1<<TWEN);
+
+    while(!(TWCR & (1<<TWINT))) // wait for end of tx
+      ;
+
+    if ((TWSR & 0xf8) == 0x18) {
+      Serial.println("ACK@2");
+    } else {
+      Serial.println("status:");
+      Serial.println(TWSR & 0xf8);
+      Serial.println("Error@2");
+    }
+  }
+}
 
 int main() {
    //uint8_t tick = 0;
 
    // define outputs
-   //DDRB = (1 << LED_PIN) | (1 << RX_PIN);
+   DDRD = (1 << PORTD_TRIGGER);
+   PORTD = 0;
 
 Serial.begin(9600);
       _delay_ms(200);
@@ -53,33 +114,21 @@ Serial.begin(9600);
     // J2 is the "Analog" header that is next to the power header,
     // & these should be the pins numbered 4, 5 on the silkscreen.
 
-   Wire.begin();
-   Wire.setTimeout(100);
-   Wire.setWireTimeout(50000, true);
 
-   while(1) {
-      _delay_ms(200);
-      Serial.println("Test");
-   Serial.flush();
+    i2c_init();                                // init I2C interface
 
-      Wire.beginTransmission(TC74_ADDRESS);
-      Serial.println('A');
-   Serial.flush();
-      Wire.write(0x01);
-      Serial.println('B');
-   Serial.flush();
-      uint8_t err = Wire.endTransmission(0);
-      Serial.println(err);
-   Serial.flush();
+    uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
+    if ( ret ) { // failed to issue start condition, possibly no device found
+        i2c_stop();
+        Serial.println("Error1");
+    }else {// issuing start condition ok, device accessible
+        i2c_start_wait((TC74_ADDRESS << 1) | I2C_WRITE);     // set device address and write mode
+        i2c_write(TC74_RWCR_COMMAND);                        // write address = 5
+        ret = i2c_readNak();                    // read one byte
+        i2c_stop();
 
-      uint8_t err2 = Wire.requestFrom(TC74_ADDRESS, 1, true);
-      Serial.println(err2);
-   Serial.flush();
-      uint8_t status = Wire.read();
-      Serial.println(status);
-      Serial.println("---");
-   Serial.flush();
+        Serial.println(ret);
+    }
 
-   }
 
 }
