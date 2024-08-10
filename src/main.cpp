@@ -134,7 +134,7 @@ Serial.begin(9600);
         } else {// issuing start condition ok, device accessible
             i2c_write(TC74_RWCR_COMMAND);
 
-            i2c_start_wait((TC74_ADDRESS << 1) | I2C_WRITE);     // set device address and write mode
+            i2c_start((TC74_ADDRESS << 1) | I2C_READ);     // set device address and write mode
             ret = i2c_readNak();                    // read one byte
             i2c_stop();
 
