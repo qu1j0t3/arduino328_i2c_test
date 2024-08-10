@@ -100,8 +100,8 @@ int main() {
    uint8_t temp;
 
    // define outputs
-   DDRD = (1 << PORTD_TRIGGER);
-   PORTD = 0;
+   //DDRD = (1 << PORTD_TRIGGER);
+   //PORTD = 0;
 
 Serial.begin(9600);
       _delay_ms(200);
@@ -121,30 +121,21 @@ Serial.begin(9600);
     // J2 is the "Analog" header that is next to the power header,
     // & these should be the pins numbered 4, 5 on the silkscreen.
 
+    i2c_init();
 
-    i2c_init();                                // init I2C interface
+   uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
 
-        uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
-
-        PIND |= 1 << PORTD_TRIGGER;
-
-        if ( ret ) { // failed to issue start condition, possibly no device found
-            i2c_stop();
-            Serial.println("InitError1");
-        } else {// issuing start condition ok, device accessible
-            i2c_write(TC74_RWCR_COMMAND);
-            i2c_write(TC74_NORMAL_MODE); // turn off Standby mode
-            i2c_stop();
-        }
-
+   if ( ret ) { // failed to issue start condition, possibly no device found
+      i2c_stop();
+      Serial.println("InitError1");
+   } else {// issuing start condition ok, device accessible
+      i2c_write(TC74_RWCR_COMMAND);
+      i2c_write(TC74_NORMAL_MODE); // turn off Standby mode
+      i2c_stop();
+   }
 
     for(uint8_t tick = 0; ; ++tick) {
-
-        PIND |= 1 << PORTD_TRIGGER;
-
         uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
-
-        PIND |= 1 << PORTD_TRIGGER;
 
         if ( ret ) { // failed to issue start condition, possibly no device found
             i2c_stop();
@@ -156,14 +147,10 @@ Serial.begin(9600);
             i2c_start((TC74_ADDRESS << 1) | I2C_READ);     // set device address and write mode
             cr = i2c_readNak();                    // read one byte
             i2c_stop();
-
-            //Serial.print("CR:"); Serial.println(cr);
         }
 
         if (cr & TC74_DATA_READY) {
             uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
-
-            PIND |= 1 << PORTD_TRIGGER;
 
             if ( ret ) { // failed to issue start condition, possibly no device found
                   i2c_stop();
