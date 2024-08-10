@@ -38,6 +38,12 @@ enum {
 };
 
 enum {
+   TC74_NORMAL_MODE = 0,
+   TC74_STANDBY_MODE = 1<<7, // bit written to CR
+   TC74_DATA_READY = 1<<6 // bit read from CR
+};
+
+enum {
   PORTD_TRIGGER = 2
 };// io_map
 
@@ -90,7 +96,8 @@ void twi_hello_world() {
 }
 
 int main() {
-   //uint8_t tick = 0;
+   uint8_t cr;
+   uint8_t temp;
 
    // define outputs
    DDRD = (1 << PORTD_TRIGGER);
@@ -117,10 +124,21 @@ Serial.begin(9600);
 
     i2c_init();                                // init I2C interface
 
-    for(uint8_t tick = 0; ; ++tick) {
+        uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
 
-            Serial.print(':');
-            Serial.println(tick);
+        PIND |= 1 << PORTD_TRIGGER;
+
+        if ( ret ) { // failed to issue start condition, possibly no device found
+            i2c_stop();
+            Serial.println("InitError1");
+        } else {// issuing start condition ok, device accessible
+            i2c_write(TC74_RWCR_COMMAND);
+            i2c_write(TC74_NORMAL_MODE); // turn off Standby mode
+            i2c_stop();
+        }
+
+
+    for(uint8_t tick = 0; ; ++tick) {
 
         PIND |= 1 << PORTD_TRIGGER;
 
@@ -133,15 +151,42 @@ Serial.begin(9600);
             Serial.println("Error1");
         } else {// issuing start condition ok, device accessible
             i2c_write(TC74_RWCR_COMMAND);
-
-            i2c_start((TC74_ADDRESS << 1) | I2C_READ);     // set device address and write mode
-            ret = i2c_readNak();                    // read one byte
             i2c_stop();
 
-            Serial.println(ret);
+            i2c_start((TC74_ADDRESS << 1) | I2C_READ);     // set device address and write mode
+            cr = i2c_readNak();                    // read one byte
+            i2c_stop();
+
+            //Serial.print("CR:"); Serial.println(cr);
         }
 
-        _delay_ms(500);
+        if (cr & TC74_DATA_READY) {
+            uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
+
+            PIND |= 1 << PORTD_TRIGGER;
+
+            if ( ret ) { // failed to issue start condition, possibly no device found
+                  i2c_stop();
+                  Serial.println("Error2");
+            } else {// issuing start condition ok, device accessible
+                  i2c_write(TC74_RTR_COMMAND);
+                  i2c_stop();
+
+                  i2c_start((TC74_ADDRESS << 1) | I2C_READ);     // set device address and write mode
+                  temp = i2c_readNak();                    // read one byte
+                  i2c_stop();
+
+                  Serial.print(" TEMP:");
+                  if ((tick % 8) == 0) {
+                     Serial.println(temp);
+                  } else {
+                     Serial.print(temp);
+                  }
+                  Serial.flush();
+            }
+        }
+
+        _delay_ms(1000);
     }
 
 }
