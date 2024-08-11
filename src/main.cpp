@@ -119,6 +119,17 @@ struct twi_receive_t twi_receive(bool ack) {
    return { .data = TWDR, .status = st };
 }
 
+uint8_t twi_command(uint8_t addr, uint8_t cmd) {
+   uint8_t st = twi_start(addr, I2C_WRITE);
+   if (st == MT_SLA_ACK) {
+      st = twi_send(cmd);
+      if (st == MT_DATA_ACK) {
+         twi_stop();
+      }
+   }
+   return st;
+}
+
 void twi_hello_world() {
    struct twi_receive_t response;
 
@@ -128,18 +139,14 @@ void twi_hello_world() {
    TWBR = ((F_CPU/SCL_CLOCK)-16)/2;  /* must be > 10 for stable operation */
 
    while(1) {
-      if (twi_start(TC74_ADDRESS, I2C_WRITE) == MT_SLA_ACK
-          && twi_send(TC74_RWCR_COMMAND) == MT_DATA_ACK) {
-         twi_stop();
-
+      if (twi_command(TC74_ADDRESS, TC74_RWCR_COMMAND) == MT_DATA_ACK) {
          if (twi_start(TC74_ADDRESS, I2C_READ) == MR_SLA_ACK) {
             response = twi_receive(I2C_NAK);
             twi_stop();
 
             if (response.status == MR_DATA_RCVD_NAK) {
                if ((response.data & TC74_DATA_READY)
-                  && twi_start(TC74_ADDRESS, I2C_WRITE) == MT_SLA_ACK
-                  && twi_send(TC74_RTR_COMMAND) == MT_DATA_ACK)
+                  && twi_command(TC74_ADDRESS, TC74_RTR_COMMAND) == MT_DATA_ACK)
                {
                   twi_stop();
 
