@@ -105,6 +105,7 @@ uint8_t twi_start(uint8_t addr, bool is_read) {
 
 void twi_stop() {
    TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWSTO);
+   _delay_us(4); // Min for TC74
 }
 
 struct twi_receive_t {
@@ -130,21 +131,17 @@ void twi_hello_world() {
       if (twi_start(TC74_ADDRESS, I2C_WRITE) == MT_SLA_ACK
           && twi_send(TC74_RWCR_COMMAND) == MT_DATA_ACK) {
          twi_stop();
-         Serial.println("MT_DATA_ACK-RWCR");
 
          if (twi_start(TC74_ADDRESS, I2C_READ) == MR_SLA_ACK) {
             response = twi_receive(I2C_NAK);
             twi_stop();
 
             if (response.status == MR_DATA_RCVD_NAK) {
-               Serial.print(" CR:");
-               Serial.println(response.data);
                if ((response.data & TC74_DATA_READY)
                   && twi_start(TC74_ADDRESS, I2C_WRITE) == MT_SLA_ACK
                   && twi_send(TC74_RTR_COMMAND) == MT_DATA_ACK)
                {
                   twi_stop();
-                  Serial.println("MT_DATA_ACK-RTR");
 
                   if (twi_start(TC74_ADDRESS, I2C_READ) == MR_SLA_ACK) {
                      response = twi_receive(I2C_ACK);
@@ -153,29 +150,14 @@ void twi_hello_world() {
                      if (response.status == MR_DATA_RCVD_ACK) {
                         Serial.print(" TEMP:");
                         Serial.println(response.data);
-                     } else {
-                        Serial.print("4status:");
-                        Serial.println(response.status);
                      }
-                  } else {
-                     Serial.print("5status:");
-                     Serial.println(response.status);
                   }
                }
-            } else {
-               Serial.print("3status:");
-               Serial.println(response.status);
             }
-         }else {
-            Serial.print("2status:");
-            Serial.println(response.status);
          }
-      } else {
-         Serial.print("1status:");
-         Serial.println(TWSR & 0xf8);
       }
 
-         Serial.flush();
+      Serial.flush();
       _delay_ms(1000);
    }
 }
