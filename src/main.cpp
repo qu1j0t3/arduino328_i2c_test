@@ -32,6 +32,24 @@ enum {
    TC74_ADDRESS = 0b1001000
 };// i2c_addresses;
 
+enum{
+   MT_START_SENT = 0x08, // see datasheet Table 22-2
+   MT_REP_START_SENT = 0x10,
+   MT_SLA_ACK = 0x18,  // after SLA+W
+   MT_SLA_NAK = 0x20,  // after SLA+W
+   MT_DATA_ACK = 0x28, // after data byte
+   MT_DATA_NAK = 0x30, // after data byte
+   MT_ARB_LOST = 0x38, // after SLA+W
+   MR_SLA_ACK = 0x40,  // after SLA+R
+   MR_SLA_NAK = 0x48,  // after SLA+R
+   MR_DATA_RCVD_ACK = 0x50,
+   MR_DATA_RCVD_NAK = 0x58
+};
+enum{  // will be used to set TWEA
+   I2C_NAK,
+   I2C_ACK
+};
+
 enum {
   TC74_RTR_COMMAND = 0,
   TC74_RWCR_COMMAND
@@ -54,45 +72,112 @@ enum {
   TWI_PRESCALER_64
 };
 
+
+uint8_t twi_wait() {
+   // When the TWI has finished an operation and expects
+   // application response, the TWINT Flag is set
+   while(!(TWCR & (1<<TWINT))) // wait for end of tx
+     ;
+   return TWSR & 0xf8;
+}
+
+uint8_t twi_send(uint8_t b) {
+   // When the TWINT Flag is set, the user must update all TWI Registers with the value relevant for the next TWI bus cycle.
+
+   TWDR = b;
+
+    // After all TWI Register updates and other pending application
+    // software tasks have been completed, TWCR is written.
+    // When writing TWCR, the TWINT bit should be set.
+    // Writing a one to TWINT clears the flag. The TWI will then commence
+    // executing whatever operation was specified by the TWCR setting.
+
+   TWCR = (1<<TWINT)|(1<<TWEN);
+
+   return twi_wait();
+}
+
+uint8_t twi_start(uint8_t addr, bool is_read) {
+   TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWSTA);
+   uint8_t st = twi_wait();
+   return st == MT_START_SENT ? twi_send((addr << 1) | is_read) : st;
+}
+
+void twi_stop() {
+   TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWSTO);
+}
+
+struct twi_receive_t {
+   uint8_t data;
+   uint8_t status;
+};
+
+struct twi_receive_t twi_receive(bool ack) {
+   TWCR = (1<<TWEN)|(1<<TWINT)|(ack<<TWEA);
+   uint8_t st = twi_wait();
+   return { .data = TWDR, .status = st };
+}
+
 void twi_hello_world() {
-  TWSR = TWI_PRESCALER_4;
-  TWBR = 18; // Aim at 100kHz with Prescaler /4
+   struct twi_receive_t response;
 
-  TWCR = (1<<TWINT) | (1<<TWSTO) | (1<<TWEN);
+   // initialisation copied from Fleury
+   enum{ SCL_CLOCK = 100000L };      /* I2C clock in Hz */
+   TWSR = 0;                         /* no prescaler */
+   TWBR = ((F_CPU/SCL_CLOCK)-16)/2;  /* must be > 10 for stable operation */
 
-  PIND |= 1 << PORTD_TRIGGER;
+   while(1) {
+      if (twi_start(TC74_ADDRESS, I2C_WRITE) == MT_SLA_ACK
+          && twi_send(TC74_RWCR_COMMAND) == MT_DATA_ACK) {
+         twi_stop();
+         Serial.println("MT_DATA_ACK-RWCR");
 
-  TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN); // send START condition
+         if (twi_start(TC74_ADDRESS, I2C_READ) == MR_SLA_ACK) {
+            response = twi_receive(I2C_NAK);
+            twi_stop();
 
+            if (response.status == MR_DATA_RCVD_NAK) {
+               Serial.print(" CR:");
+               Serial.println(response.data);
+               if ((response.data & TC74_DATA_READY)
+                  && twi_start(TC74_ADDRESS, I2C_WRITE) == MT_SLA_ACK
+                  && twi_send(TC74_RTR_COMMAND) == MT_DATA_ACK)
+               {
+                  twi_stop();
+                  Serial.println("MT_DATA_ACK-RTR");
 
-  while(!(TWCR & (1<<TWINT))) // wait for end of tx
-    ;
+                  if (twi_start(TC74_ADDRESS, I2C_READ) == MR_SLA_ACK) {
+                     response = twi_receive(I2C_ACK);
+                     twi_stop();
 
-  _delay_us(100);
+                     if (response.status == MR_DATA_RCVD_ACK) {
+                        Serial.print(" TEMP:");
+                        Serial.println(response.data);
+                     } else {
+                        Serial.print("4status:");
+                        Serial.println(response.status);
+                     }
+                  } else {
+                     Serial.print("5status:");
+                     Serial.println(response.status);
+                  }
+               }
+            } else {
+               Serial.print("3status:");
+               Serial.println(response.status);
+            }
+         }else {
+            Serial.print("2status:");
+            Serial.println(response.status);
+         }
+      } else {
+         Serial.print("1status:");
+         Serial.println(TWSR & 0xf8);
+      }
 
-  PIND |= 1 << PORTD_TRIGGER;
-
-  if ((TWSR & 0xf8) != 0x08) {
-    Serial.println("status:");
-    Serial.println(TWSR & 0xf8);
-    Serial.println("Error@1");
-  } else {
-    Serial.println("OK@1");
-    // send address
-    TWDR = (0x55 << 1)|1; // dummy address
-    TWCR = (1<<TWINT)|(1<<TWEN);
-
-    while(!(TWCR & (1<<TWINT))) // wait for end of tx
-      ;
-
-    if ((TWSR & 0xf8) == 0x18) {
-      Serial.println("ACK@2");
-    } else {
-      Serial.println("status:");
-      Serial.println(TWSR & 0xf8);
-      Serial.println("Error@2");
-    }
-  }
+         Serial.flush();
+      _delay_ms(1000);
+   }
 }
 
 int main() {
@@ -108,6 +193,10 @@ Serial.begin(9600);
 
    Serial.println("Ready.");
    Serial.flush();
+
+   twi_hello_world();
+   Serial.flush();
+   return 0;
 
     // Pinout for I2C ...
     // Duemilanove schematic for the programming connector:
@@ -147,7 +236,6 @@ Serial.begin(9600);
             i2c_start((TC74_ADDRESS << 1) | I2C_READ);     // set device address and write mode
             cr = i2c_readNak();                    // read one byte
             i2c_stop();
-        }
 
         if (cr & TC74_DATA_READY) {
             uint8_t ret = i2c_start((TC74_ADDRESS << 1) | I2C_WRITE);       // set device address and write mode
@@ -164,14 +252,16 @@ Serial.begin(9600);
                   i2c_stop();
 
                   Serial.print(" TEMP:");
-                  if ((tick % 8) == 0) {
+                  if ((tick % 8) == 7) {
                      Serial.println(temp);
                   } else {
                      Serial.print(temp);
                   }
                   Serial.flush();
             }
-        }
+         }
+
+         }
 
         _delay_ms(1000);
     }
