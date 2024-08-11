@@ -151,8 +151,7 @@ struct twi_receive_t twi_receive_byte_nak(uint8_t addr) {
 void twi_hello_world() {
    struct twi_receive_t response;
 
-   // initialisation copied from Fleury
-   TWSR = 0;                         /* no prescaler */
+   TWSR = TWI_PRESCALER_1;
    TWBR = ((F_CPU/SCL_CLOCK)-16)/2;  /* must be > 10 for stable operation */
 
    while(1) {
