@@ -72,6 +72,14 @@ enum {
   TWI_PRESCALER_64
 };
 
+// Note the following (spec Table 11):
+enum {
+   T_SETUP_STOP_US = 4, // Set-up time for STOP condition, min 4µs
+   T_SETUP_REP_START_US = 5, // Set-up time for repeated START condition, min 4.7µs
+   T_HOLD_REP_START_US = 4, // Hold time for repeated START condition, min 4µs
+   T_BUS_FREE_US = 5,    // Bus free time between a STOP and START condition, min 4.7µs
+   SCL_CLOCK = 100000L /* I2C clock in Hz */
+};
 
 uint8_t twi_wait() {
    // When the TWI has finished an operation and expects
@@ -82,7 +90,8 @@ uint8_t twi_wait() {
 }
 
 uint8_t twi_send(uint8_t b) {
-   // When the TWINT Flag is set, the user must update all TWI Registers with the value relevant for the next TWI bus cycle.
+   // When the TWINT Flag is set, the user must update all TWI
+   // Registers with the value relevant for the next TWI bus cycle.
 
    TWDR = b;
 
@@ -105,7 +114,7 @@ uint8_t twi_start(uint8_t addr, bool is_read) {
 
 void twi_stop() {
    TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWSTO);
-   _delay_us(4); // Min for TC74
+   _delay_us(T_BUS_FREE_US);
 }
 
 struct twi_receive_t {
@@ -123,43 +132,41 @@ uint8_t twi_command(uint8_t addr, uint8_t cmd) {
    uint8_t st = twi_start(addr, I2C_WRITE);
    if (st == MT_SLA_ACK) {
       st = twi_send(cmd);
-      if (st == MT_DATA_ACK) {
-         twi_stop();
-      }
    }
+   twi_stop();
    return st;
 }
+
+struct twi_receive_t twi_receive_byte_nak(uint8_t addr) {
+   struct twi_receive_t resp;
+   resp.status = twi_start(addr, I2C_READ);
+   if (resp.status == MR_SLA_ACK) {
+      resp = twi_receive(I2C_NAK);
+   }
+   twi_stop();
+   return resp;
+}
+
 
 void twi_hello_world() {
    struct twi_receive_t response;
 
    // initialisation copied from Fleury
-   enum{ SCL_CLOCK = 100000L };      /* I2C clock in Hz */
    TWSR = 0;                         /* no prescaler */
    TWBR = ((F_CPU/SCL_CLOCK)-16)/2;  /* must be > 10 for stable operation */
 
    while(1) {
+      // Read config register to see if data is ready
       if (twi_command(TC74_ADDRESS, TC74_RWCR_COMMAND) == MT_DATA_ACK) {
-         if (twi_start(TC74_ADDRESS, I2C_READ) == MR_SLA_ACK) {
-            response = twi_receive(I2C_NAK);
-            twi_stop();
-
+         response = twi_receive_byte_nak(TC74_ADDRESS);
+         if (response.status == MR_DATA_RCVD_NAK  // if we got status,
+             && (response.data & TC74_DATA_READY) // and data is ready,
+             && twi_command(TC74_ADDRESS, TC74_RTR_COMMAND) == MT_DATA_ACK) // then read temperature register
+         {
+            response = twi_receive_byte_nak(TC74_ADDRESS);
             if (response.status == MR_DATA_RCVD_NAK) {
-               if ((response.data & TC74_DATA_READY)
-                  && twi_command(TC74_ADDRESS, TC74_RTR_COMMAND) == MT_DATA_ACK)
-               {
-                  twi_stop();
-
-                  if (twi_start(TC74_ADDRESS, I2C_READ) == MR_SLA_ACK) {
-                     response = twi_receive(I2C_ACK);
-                     twi_stop();
-
-                     if (response.status == MR_DATA_RCVD_ACK) {
-                        Serial.print(" TEMP:");
-                        Serial.println(response.data);
-                     }
-                  }
-               }
+               Serial.print(" TEMP:");
+               Serial.println(response.data);
             }
          }
       }
